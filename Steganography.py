@@ -1,0 +1,125 @@
+#!/usr/bin/env python3.4
+import base64,zlib,re
+from PIL import Image
+import numpy as np
+
+
+## -=-=-=-=-=-=-=-=-=-=-=-=-
+## Questions
+## --> is the image only 1-d and 3-d? Do we need to handle a variable size x dimension in (-,-,x)
+## --> should we "im.convert()" the images into an array?
+## --> 
+##
+##
+
+
+class Payload():
+
+    def __init__(self,_img=None,compressionLevel=-1,_content=None):
+        self.img = _img
+        self.content = _content
+        self.compressionLevel = compressionLevel
+        self.color = 1
+        
+        ## DETECT IF COLOR OR BW IMAGE
+        if len(np.squeeze(self.img).shape) < 3:
+            self.color = 0
+
+        ## DATA VALIDATION: COMPRESSION LEVEL
+        if compressionLevel < -1 or compressionLevel > 9:
+            raise ValueError("Compression Level must be an integer in [-1,9]")
+
+        ## CHOOSING ACTION TO PERFORM
+        if self.img is not None and self.content is None:
+            if type(self.img) is not np.ndarray:
+                raise TypeError("Invalid array value type for image. Numpy array expected.")
+            self.generate_content()
+        elif self.content is not None:
+            if type(self.content) is not np.ndarray:
+                raise TypeError("Invalid array value type for content. Numpy array expected.")
+            self.reconstruct_img()
+        elif self.content is None and self.img is None\
+             or self.content is not None and self.img is not None:
+            raise ValueError("Both img and content are none. Please call with only one.")
+        
+    def generate_content(self):
+        if self.color == 1:
+            raw_data = np.concatenate((self.img[:,:,0].ravel(),self.img[:,:,1].ravel(),self.img[:,:,2].ravel()))
+            color_str = "Color"
+        else:
+            raw_data = self.img.ravel()
+            color_str = "Gray"
+        
+        if self.compressionLevel >= 0:
+            raw_data = np.frombuffer(zlib.compress(raw_data,self.compressionLevel),np.uint8)
+            compressed_str = "True"
+        else:
+            compressed_str = "False"
+
+        print(len(raw_data))
+        txt_data = str(list(map(lambda x: str(x),raw_data)))[1:-1].replace("'","")
+
+        xml_str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><payload type=\"" + color_str + "\" size=\"" + str(self.img.shape[0]) + "," + str(self.img.shape[1]) + "\" compressed=\"" + compressed_str + "\">" + txt_data + "</payload>"
+        
+        self.content = np.array(list(base64.b64encode(bytes(xml_str,"utf-8"))))
+
+    def reconstruct_img(self):
+        xml_str = base64.b64decode(self.content).decode("utf-8")
+        xml_reg = r"<\?xml version=\"1.0\" encoding=\"UTF-8\"\?><payload type=\"(?P<type>(Color|Gray))\" size=\"(?P<len>[0-9]+),(?P<width>[0-9]+)\" compressed=\"(?P<cp>(True|False))\"\>(?P<img>[0-9, ]+)</payload>"
+        match = re.match(xml_reg,xml_str)
+        if match is None:
+            raise ValueError("Invalid string. TODO: Is this how we handle an invalid string?")
+        params = match.groupdict()
+        if len(params) != 5:
+            raise ValueError("Invalid string. TODO: Is this how we handle an invalid string?")
+
+        img_shape = [0,0,0]
+        if params["type"] == "Color":
+            img_shape[2] = 3
+        elif params["type"] == "Gray":
+            img_shape[2] = 1
+        else:
+            raise ValueError("Invalid string. TODO: Is this how we handle an invalid string?")
+
+        img_shape[0] = int(float(params["len"]))
+        img_shape[1] = int(float(params["width"]))
+        _img = np.array(list(map(lambda x: int(float(x)), params["img"].split(","))),dtype=np.uint8)
+        if params["cp"] == "True":
+            _img = np.frombuffer(zlib.decompress(_img),dtype=np.uint8)
+
+        if img_shape[2] == 3:
+            i = img_shape[0]*img_shape[1]
+            _img = np.dstack((_img[:i],_img[1*i:2*i],_img[2*i:]))
+            self.img = _img.reshape(img_shape[0],img_shape[1],img_shape[2])
+        else:
+            self.img = _img.reshape(img_shape[0],img_shape[1])
+
+    def b64_encoode(self):
+        pass
+
+    def b64_decode(self):
+        pass
+
+
+
+if __name__ == "__main__":
+
+    filename = "./bw.gif"
+    myimg = Image.open(filename)
+    #myimg.show()
+
+    img = np.asarray(myimg, dtype=np.uint8)
+    # aim = Image.fromarray(img,"1")
+    # immat = aim.load()
+    # aim.show()
+
+    a = Payload(img,4)
+    b = Payload(None,-1,a.content)
+    
+    if (False not in (b.img == img)):
+        print("SUCCESS")
+
+    #bim = Image.fromarray(b.img*255)
+    #bim.show()
+    # print("hi")
+    
