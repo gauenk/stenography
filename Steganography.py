@@ -2,15 +2,7 @@
 import base64,zlib,re
 from PIL import Image
 import numpy as np
-
-
-## -=-=-=-=-=-=-=-=-=-=-=-=-
-## Questions
-## --> is the image only 1-d and 3-d? Do we need to handle a variable size x dimension in (-,-,x)
-## --> should we "im.convert()" the images into an array?
-## --> 
-##
-##
+from timer import Timer ## TODO REMOVE THIS
 
 
 class Payload():
@@ -31,11 +23,13 @@ class Payload():
 
         ## CHOOSING ACTION TO PERFORM
         if self.img is not None and self.content is None:
-            if type(self.img) is not np.ndarray:
+            if type(self.img) is not np.ndarray or \
+               np.issubdtype(self.img.dtype,np.uint8) is False:
                 raise TypeError("Invalid array value type for image. Numpy array expected.")
             self.generate_content()
         elif self.content is not None:
-            if type(self.content) is not np.ndarray:
+            if type(self.content) is not np.ndarray or\
+               np.issubdtype(self.content.dtype,np.uint8) is False:
                 raise TypeError("Invalid array value type for content. Numpy array expected.")
             self.reconstruct_img()
         elif self.content is None and self.img is None\
@@ -43,25 +37,22 @@ class Payload():
             raise ValueError("Both img and content are none. Please call with only one.")
         
     def generate_content(self):
-        if self.color == 1:
-            raw_data = np.concatenate((self.img[:,:,0].ravel(),self.img[:,:,1].ravel(),self.img[:,:,2].ravel()))
-            color_str = "Color"
-        else:
-            raw_data = self.img.ravel()
-            color_str = "Gray"
-        
+        raw_data = self.unroll()
         if self.compressionLevel >= 0:
             raw_data = np.frombuffer(zlib.compress(raw_data,self.compressionLevel),np.uint8)
             compressed_str = "True"
         else:
             compressed_str = "False"
 
-        print(len(raw_data))
+        _t = Timer()
+        _t.tic()
         txt_data = str(list(map(lambda x: str(x),raw_data)))[1:-1].replace("'","")
+        _t.toc()
 
-        xml_str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><payload type=\"" + color_str + "\" size=\"" + str(self.img.shape[0]) + "," + str(self.img.shape[1]) + "\" compressed=\"" + compressed_str + "\">" + txt_data + "</payload>"
+        xml_str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><payload type=\"" + self.color_str + "\" size=\"" + str(self.img.shape[0]) + "," + str(self.img.shape[1]) + "\" compressed=\"" + compressed_str + "\">" + txt_data + "</payload>"
         
-        self.content = np.array(list(base64.b64encode(bytes(xml_str,"utf-8"))))
+        self.content = np.array(list(base64.b64encode(bytes(xml_str,"utf-8"))),dtype=np.uint8)
+
 
     def reconstruct_img(self):
         xml_str = base64.b64decode(self.content).decode("utf-8")
@@ -94,6 +85,16 @@ class Payload():
         else:
             self.img = _img.reshape(img_shape[0],img_shape[1])
 
+    def unroll(self):
+        if self.color == 1:
+            raw_data = np.concatenate((self.img[:,:,0].ravel(),self.img[:,:,1].ravel(),self.img[:,:,2].ravel()))
+            self.color_str = "Color"
+        else:
+            raw_data = self.img.ravel()
+            self.color_str = "Gray"
+        return raw_data
+    
+
     def b64_encoode(self):
         pass
 
@@ -101,10 +102,67 @@ class Payload():
         pass
 
 
+class Carrier():
+
+    def __init__(self,_img):
+        self.img = _img
+        self.xml_header = ['01','01','00','00', '01','00','01','00', '00','11','10','01', '00','11','01','00', '01','10','00','10','01','01','01','11','01','11','01','11', '01','10','01','11', '01','10','01','00', '01','10','11','01', '01','01','01','10', '01','11','10','01', '01','10','00','11', '00','11','00','10', '01','10','11','00', '01','11','01','10', '01','10','00','10', '01','10','10','10', '00','11','00','00', '01','10','10','01', '01','00','11','01', '01','01','00','11', '00','11','01','00', '01','11','01','11', '01','00','10','01', '01','10','10','01', '01','00','00','10', '01','10','11','00']
+        if type(self.img) is not np.ndarray or np.issubdtype(self.img.dtype,np.uint8) is False:
+            raise TypeError("Incorrect parameter type.")
+
+    def payloadExists(self):
+        test_vect = list(map(lambda x,y: '{0:08b}'.format(x)[6:8] == y,self.img.ravel(),self.xml_header))
+        return False if False in test_vect else True
+    
+    def embedPayload(self, payload, override=False):
+        if isinstance(payload,Payload) is False or type(payload.content) is not np.ndarray or type(payload.content.dtype) is False:
+            raise TypeError("parameter passed contains an incorrect type.")
+        if len(payload.content) > np.size(self.img):
+            print(len(payload.content))
+            print(np.size(self.img))
+            raise ValueError("Payload size is larger than what the carrier can hold.")
+        if self.payloadExists() is True and override is False:
+            raise Exception("Payload exists and override is False.")
+
+        _t = Timer()
+        _t.tic()
+        ## takes about 0.01 seconds
+        conv_content = ''.join(list(map(lambda x: '{0:08b}'.format(x),payload.content)))
+        conv_list = re.findall('..',conv_content)
+        _t.toc()
+        print(_t.average_time)
+        #miter = 0
+        #print(conv_content)
+        # for x,y in zip(self.img.ravel(),payload.content):
+        #     if miter < 10:
+        #         print('{0:08b}'.format(x),'{0:08b}'.format(y))
+        #         print(int('{0:08b}'.format(x)[0:6] + '{0:08b}'.format(y)[6:8],2))
+        #         miter += 1
+        return np.concatenate((np.array(list(map(lambda x,y: int('{0:08b}'.format(x)[0:6] + y,2),self.img.ravel(),conv_list)),dtype=np.uint8),self.img.ravel()[len(conv_list):])).reshape(self.img.shape)
+
+    def extractPayload(self):
+        _t = Timer()
+        _t.tic()
+        end_elems = ''.join(list(map(lambda x: '{0:08b}'.format(x)[6:8],self.img.ravel())))
+        conv_list = list(map(lambda x: int(x,2),re.findall('....',end_elems)))
+        #end_elems = bytearray(end_elems,"utf-8")
+        _t.toc()
+        #print(end_elems)
+        print(_t.average_time,"to bin")
+
+        return end_elems
+
+    def clean(self):
+        rand_vals = np.random.randint(0,255,np.size(self.img),dtype=np.uint8)
+        return np.array(list(map(lambda x,y: int('{0:08b}'.format(x)[0:6] + '{0:08b}'.format(y)[6:8],2),self.img.ravel(),rand_vals)),dtype=np.uint8).reshape(self.img.shape)
+
 
 if __name__ == "__main__":
 
-    filename = "./bw.gif"
+    _t = Timer()
+    filename = "./color.png"
+    #filename = "./bw.gif"
+    #filename = "./nature.jpg"
     myimg = Image.open(filename)
     #myimg.show()
 
@@ -113,9 +171,35 @@ if __name__ == "__main__":
     # immat = aim.load()
     # aim.show()
 
-    a = Payload(img,4)
-    b = Payload(None,-1,a.content)
-    
+    a = Payload(img,9)
+
+    #emb_array = np.array(list(map(lambda x,y: int('{0:08b}'.format(x)[0:6] + '{0:08b}'.format(y)[6:8],2),a.img,a.content)))
+    #print(emb_str.shape)
+
+    filename = "./nature.jpg"
+    myimg = Image.open(filename)
+    inimg = np.asarray(myimg, dtype=np.uint8)
+
+    b = Carrier(img)
+    _t.tic()
+    eimg = b.embedPayload(a)
+    _t.toc()    
+
+    print(_t.average_time)    
+
+
+    b = Carrier(img)
+    _t.tic()
+    b.clean()
+    _t.toc()    
+
+    print(_t.average_time)    
+
+    c = Carrier(eimg)
+    c.payloadExists()
+
+    c.extractPayload()
+
     if (False not in (b.img == img)):
         print("SUCCESS")
 
