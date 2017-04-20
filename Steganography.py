@@ -1,10 +1,9 @@
 #!/usr/bin/env python3.4
-import base64,zlib,re,binascii
+import zlib,re,binascii
 from scipy.stats import bernoulli
 from scipy.misc import imread,imshow
 from PIL import Image
 import numpy as np
-from timer import Timer ## TODO REMOVE THIS
 
 
 class Payload():
@@ -45,31 +44,11 @@ class Payload():
             txt_data = raw_data
             compressed_str = [ 70,  97, 108, 115, 101] # False in numbers
 
-        #print(np.size(self.img),len(raw_data),len(txt_data))
-        # _t = Timer()
-        # _t.tic()
-        #txt_data = np.fromstring(','.join(map(str, txt_data)),np.uint8)
         k = txt_data.astype("<U3").view(np.dtype("a4"))
-        # _t.toc()
-        # print(_t.average_time,"viewing")
-        # _t = Timer()
-        # _t.tic()
         til = np.tile(",",len(k)//3)[:,np.newaxis]
-        # _t.toc()
-        # print(_t.average_time,"tile")
-        # _t = Timer()
-        # _t.tic()
         l = np.hstack((k.reshape(len(k)//3,3),til)).ravel()[:-1]
-        # _t.toc()
-        # print(_t.average_time,"reshape")
-        # _t = Timer()
-        # _t.tic()
         m = np.delete(l,np.where(l=='')).view(int)[::2].astype(np.uint8)
-        # _t.toc()
-        # print(_t.average_time)
-
         xml_str = self.make_xml(m,compressed_str)
-        #print(len(xml_str),"len(xml_str)")
         xml_up = np.unpackbits(xml_str)
         padding = np.zeros(6-len(xml_up)%6,dtype=np.uint8)
         if len(padding) == 6:
@@ -98,7 +77,7 @@ class Payload():
         
         match = re.match(xml_reg,xml_str)
         if match is None:
-            raise ValueError("Invalidd string. Regex did not match anything.")
+            raise ValueError("Invalid string. Regex did not match anything.")
         params = match.groupdict()
         if len(params) != 4:
             raise ValueError("Invalid string. Unexpected number of matches.")
@@ -135,8 +114,6 @@ class Payload():
         return raw_data
     
     def make_xml(self,txt_data,compressed_str):
-        #print(len(txt_data),"len(txt_data)")
-        #print(txt_data[:10],txt_data[-10:])
         return np.concatenate(([ 60,  63, 120, 109, 108,  32,\
                                  118, 101, 114, 115, 105, 111, \
                                  110, 61,  34,  49,  46,  48,  \
@@ -160,8 +137,8 @@ class Carrier():
 
     def __init__(self,_img):
         self.img = _img
-        #self.xml_header = [1,1,1,1,0,0,1,1,0,0,0,0,1,0,1,1,1,1,0,0,0,1,1,1,1,1,0,1,1,0,0,1,1,0,1,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,1,1,1,0,0,1,1,0,0,1,1,0,1,0,1,0,0,1,0,0,1,1,0,0,1,1,1,0,0,1,1,0,1,1,1,0,1,0,0,1,1,1,1,1,0,1,1,1,0,1,1,0,1,1,0,0,0,1,0,0,1,0,1,1,0,1,0,0,0,1,0,0,1,1,0,0,0,1,0,0,1,0,0,0,0,1,1,1,0,0,0,0,1,1,0,0,0,1,0,0,0,1,0,0,0,1,1,0,0,0,0,0,1,0,1,0,0,1,1,1,0,1,1,0,0,1,1,0,0,1,1,0,1,1,0,0,1,1,1,1,0,1,1,0,0,1,1,0,0,1,1,0,0,0,1,0,1,0,0,1,0,1,1,1,0,1,1,0,0,1,1,0,1,1,0,0,1,1,0,0,1,0,1,1,0,1,0,0,0,1,1,0,1,0,1,0,1,0,1,0,1,0,1,0,0,0,1,0,0,1,1,0,0,0,1,1,0,1,0,0,1,1,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,1,1,1,1,1,0,0,1,1,0,0,1,1,0,0,0,1,1,1,0,0,1,1,1,1,0,0,1,1,1,0,0,1,1,0,0,0,1,0,1,0,0,0,1,0,0,1,1,1,1,1,0,1,1,0,0,1,1,0,0,0,1,0,1,1,1,1,1,0,0,0,0,1,1,0,0,1,1,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,1,1,0,1,1,1,1,0,1,1,1,0,1,0,1,0,0,0,0,0,1,0,1,0,0,1]
-        self.xml_header = [1,1,1,1,0,0,1,1,0,0,0,0,1,0,1,1,1,1]
+        self.xml_header_bits = [1,1,1,1,0,0,1,1,0,0,0,0,1,0,1,1,1,1]
+        self.xml_header_values = [15,3,61,56,27,22,48,32,29,38,21,50,28]
         self.color=True
         if type(self.img) is not np.ndarray or np.issubdtype(self.img.dtype,np.uint8) is False:
             raise TypeError("Incorrect parameter type.")
@@ -173,15 +150,13 @@ class Carrier():
 
     def payloadExists(self):
         up_img = np.unpackbits(self.img.ravel()[:208])
-        if np.array_equal(up_img[7:len(self.xml_header)*4:8],self.xml_header[0::2]) and \
-           np.array_equal(up_img[6:len(self.xml_header)*4:8],self.xml_header[1::2]):
+        if np.array_equal(up_img[7:len(self.xml_header_bits)*4:8],self.xml_header_bits[0::2]) and \
+           np.array_equal(up_img[6:len(self.xml_header_bits)*4:8],self.xml_header_bits[1::2]):
             return True
         return False
 
     def embedPayload(self, payload, override=False):
-        img_size = np.size(self.img)
-        if self.color is True:
-            img_size = img_size // 3
+        img_size = np.size(self.img)//3 ## TODO: test if true for BW images
         if isinstance(payload,Payload) is False or type(payload.content) is not np.ndarray or type(payload.content.dtype) is False:
             raise TypeError("parameter passed contains an incorrect type.")
         content_len = len(payload.content)
@@ -210,122 +185,96 @@ class Carrier():
     def extractPayload(self):
         if self.payloadExists() is False:
             raise Exception("No payload present.")
-        up_img = self.img.ravel()
+        up_img = np.copy(self.img).ravel()
         lsb = (up_img&3).reshape(-1,3)
         array = np.left_shift(lsb[:,2],4) | np.left_shift(lsb[:,1],2) | lsb[:,0]
         return Payload(content=array)
 
     def clean(self):
         up_img = np.copy(self.img).ravel()
-        rand_vals = np.random.randint(0,2,len(up_img),dtype=np.uint8)
+        rand_vals = np.random.randint(0,2,len(up_img)).astype(np.uint8)
         up_img = up_img&252|rand_vals
         return up_img.reshape(self.img.shape)
 
+    def extractPayloadAdvanced(self):
+        # 99 is smallest valid xml structure w/ image
+        max_i = np.size(self.img)-99
+        max_n = np.ceil(np.size(self.img)//99)
+        up_img = np.copy(self.img).ravel()
+        lsb = (up_img&3).reshape(-1,3)
+        array = np.left_shift(lsb[:,2],4) | np.left_shift(lsb[:,1],2) | lsb[:,0]
+        
+        
+        f = np.where(array==self.xml_header_values[0])[0]
+        s = np.where(array[f[0]:]==self.xml_header_values[1])[0]+f[0]
+        t = np.where(array[s[0]:]==self.xml_header_values[2])[0]+s[0]
+        fr = np.where(array[t[0]:]==self.xml_header_values[4])[0]+t[0]
+        min_len = np.min([len(f),len(s),len(t),len(fr)])
+        i = 0
+        n = 1
+        s_mat = np.tile(s[:,np.newaxis],len(f))
+        ds_mat = s_mat - f
+        t_mat = np.tile(t[:,np.newaxis],len(s))
+        dt_mat = t_mat - s
+        loc = np.where(np.equal(dt_mat,ds_mat))
+        print(loc)
+        
 
-def print_time_dict(_t):
-    for i,v in _t.items():
-        print(i,v.average_time)
+        # print(len(f),len(s))
 
-def test_payload_prep():
-    #filename = "./nature.jpg"
-    filename = "./color.png"
-    myimg = Image.open(filename)
-    p_img = np.asarray(myimg, dtype=np.uint8)
-    _t = {'total': Timer(),'to_content': Timer(),'to_img': Timer()}
-    _t['total'].tic()
-    _t['to_content'].tic()
-    a = Payload(p_img,9)
-    _t['to_content'].toc()
-    _t['to_img'].tic()
-    a = Payload(content=a.content)
-    _t['to_img'].toc()
-    _t['total'].toc()
-    print_time_dict(_t)
-    print(np.array_equal(p_img,a.img))
+        # ab = np.where(np.equal((s[:min_len]-f[:min_len]),(fr[:min_len]-t[:min_len]),(t[:min_len]-s[:min_len])))
+        # print(f[33])
+        # print(s[33])
+        # print(t[33])
+        # print(ab,"av")
 
-def test_carrier_clean():
-    filename = "./nature.jpg"
-    myimg = Image.open(filename)
-    c_img = np.asarray(myimg, dtype=np.uint8)
-    _t = Timer()
-    b = Carrier(c_img)
-    _t.tic()
-    b.clean()
-    _t.toc()    
-    print("clean time",_t.average_time)
-
-def embed_payload():
-    #filename = "./nature.jpg"
-
-    payload_filename = "./medium.png"
-    #payload_filename = "./color.png"
-    carrier_filename = "./world.jpg"
-    #carrier_filename = "./nature.jpg"
-
-    payload_img = imread(payload_filename)
-    carrier_img = imread(carrier_filename)
-
-    _t = {'payload': Timer(),'embed': Timer(),\
-          'payload_exists_i':Timer(),'payload_exists_e':Timer(),\
-          'extract_payload':Timer(),'generate':Timer(),
-           'ex_gen':Timer()}
-
-    _t['payload'].tic()
-    a = Payload(payload_img,9) ## create content to embed
-    _t['payload'].toc()
-
-    b = Carrier(carrier_img)    ## create Carrier instance
-
-    _t['payload_exists_i'].tic()
-    print(b.payloadExists() == False)
-    _t['payload_exists_i'].toc()
+        # if (s[0] - f[0]) != (t[0] - s[0]):
+        #     print("HERE")
+        #     print(f[0],s[0],t[0],fr[0])
+        #     s = np.where(array[s[0]+1:]==self.xml_header_values[1])[0]+s[0]+1
+        #     t = np.where(array[s[0]:]==self.xml_header_values[2])[0]+s[0]
+        #     fr = np.where(array[t[0]:]==self.xml_header_values[4])[0]+t[0]
+        # print(f[0],s[0],t[0],fr[0])
+        
+        f_array = array
 
 
-    _t['embed'].tic()
-    eimg = b.embedPayload(a) ## embed a into b
-    _t['embed'].toc()
-
-    #imshow(carrier_img) ## show both images to see the difference
-    #imshow(eimg) ## show to see the difference
-
-    b_e = Carrier(eimg) # create carrier WITH embedded image
-
-    _t['payload_exists_e'].tic()
-    print(b_e.payloadExists() == True)
-    _t['payload_exists_e'].toc()
+        return Payload(content=f_array)
 
 
-    _t['extract_payload'].tic()
-    ex_payload = b_e.extractPayload()
-    _t['extract_payload'].toc()
+    def embedPayloadAdvanced(self, payload, initialPoint, step):
+        if isinstance(payload,Payload) is False or type(payload.content) is not np.ndarray or type(payload.content.dtype) is False or type(initialPoint) is not tuple or type(step) is not int:
+            raise TypeError("parameter passed contains an incorrect type.")
+        img_size =(self.img_shape[0] - initialPoint[0])\
+                    * (self.img_shape[1] - initialPoint[1])
+        if step != 0:
+            img_size = int(np.ceil(img_size/step))
+        if self.color is True:
+            img_size = 3*img_size
+        content_len = len(payload.content)
+        if content_len > img_size:
+            raise ValueError("Payload size is larger than what the carrier can hold.")
 
-    idx = range(1790,1804)
-    print(np.array_equal(ex_payload.img[:len(a.content)],a.img),"extract") ## extraction should be equal to embedded content
-
-    _t['generate'].tic()
-    c = Payload(content=a.content)
-    _t['generate'].toc()
-
-    print(np.array_equal(c.img,a.img),"generate")
-
-    _t['ex_gen'].tic()
-    print("EX_GEN\n\n")
-    c = Payload(content=ex_payload.content)
-    _t['ex_gen'].toc()
-
-    print(np.array_equal(c.img,a.img),"ex_gen")
-
-
-    print_time_dict(_t)
-##BOTTLE NECKS:
-# extract payload
-# ex_gen
+        if self.color is True:
+            bimg = np.copy(self.img)
+            start_idx = initialPoint[0]*bimg.shape[1]+initialPoint[1]
+            rbimg = bimg.reshape((-1,3))[start_idx:start_idx+content_len*step:step]
+            rbimg = rbimg&252|(np.tile(payload.content[:,np.newaxis],3)&[3,12,48])//[1,4,16]
+            this = bimg.reshape(-1,3)
+            this[start_idx:start_idx+content_len*step:step,:] = rbimg
+            that = this.reshape(bimg.shape).astype(np.uint8)
+        else:
+            bimg = np.copy(self.img).ravel()[0:np.size(self.img)-(np.size(self.img)%3)] 
+            assert(len(bimg)%3 == 0)
+            start_idx = initialPoint[0]*bimg.shape[1]+initialPoint[1]
+            rbimg = bimg.reshape((-1,3))[start_idx:start_idx+content_len*step:step]
+            rbimg = rbimg&252|(np.tile(payload.content[:,np.newaxis],3)&[3,12,48])//[1,4,16]
+            this = bimg.reshape(-1,3)
+            this[start_idx:start_idx+content_len*step:step,:] = rbimg
+            that = this.reshape(bimg.shape).astype(np.uint8)
+        return that
 
 
 if __name__ == "__main__":
-
-
-    #test_payload_prep()
-    #test_carrier_clean()
-    embed_payload()
+    print("Main function")
 
