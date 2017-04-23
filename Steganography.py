@@ -217,24 +217,6 @@ class Carrier():
         t_mat = np.tile(t[:,np.newaxis],len(s))
         dt_mat = t_mat - s
         loc = np.where(np.equal(dt_mat,ds_mat))
-        print(loc)
-        
-
-        # print(len(f),len(s))
-
-        # ab = np.where(np.equal((s[:min_len]-f[:min_len]),(fr[:min_len]-t[:min_len]),(t[:min_len]-s[:min_len])))
-        # print(f[33])
-        # print(s[33])
-        # print(t[33])
-        # print(ab,"av")
-
-        # if (s[0] - f[0]) != (t[0] - s[0]):
-        #     print("HERE")
-        #     print(f[0],s[0],t[0],fr[0])
-        #     s = np.where(array[s[0]+1:]==self.xml_header_values[1])[0]+s[0]+1
-        #     t = np.where(array[s[0]:]==self.xml_header_values[2])[0]+s[0]
-        #     fr = np.where(array[t[0]:]==self.xml_header_values[4])[0]+t[0]
-        # print(f[0],s[0],t[0],fr[0])
         
         f_array = array
 
